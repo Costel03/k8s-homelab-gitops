@@ -1,0 +1,165 @@
+---
+- name: Install wait-for-eth1 systemd service (ensures hostonly NIC is up before kubelet)
+  copy:
+    dest: /etc/systemd/system/wait-for-eth1.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Wait for eth1 (192.168.56.x) to be ready
+      Before=kubelet.service
+      After=network.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c 'until ip addr show eth1 | grep -q 192.168.56; do sleep 2; done'
+      TimeoutSec=60
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable wait-for-eth1 service
+  systemd:
+    name: wait-for-eth1.service
+    enabled: true
+    daemon_reload: true
+
+- name: Check if Kubernetes is already initialized
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: kubeadm_config
+
+- name: Restart containerd to ensure it's running
+  systemd:
+    name: containerd
+    state: restarted
+    enabled: true
+
+- name: Wait for containerd socket to be ready
+  wait_for:
+    path: /run/containerd/containerd.sock
+    state: present
+    timeout: 60
+
+- name: Force clock sync before kubeadm init
+  command: chronyc makestep
+  become: true
+  when: not kubeadm_config.stat.exists
+
+- name: Reset any partial kubeadm state before init
+  become: true
+  shell: |
+    kubeadm reset -f
+    rm -rf /etc/kubernetes/manifests /etc/kubernetes/pki /var/lib/etcd
+  when: not kubeadm_config.stat.exists
+  ignore_errors: true
+
+- name: Wait for hostonly interface (192.168.56.10) to be assigned
+  shell: ip addr show | grep -c '192.168.56.10'
+  register: iface_check
+  until: iface_check.rc == 0 and iface_check.stdout | int > 0
+  retries: 24
+  delay: 5
+  when: not kubeadm_config.stat.exists
+
+- name: Get installed kubeadm version
+  command: kubeadm version -o short
+  register: kubeadm_ver
+  when: not kubeadm_config.stat.exists
+
+- name: Initialize Kubernetes control plane
+  become: true
+  shell: |
+    set -o pipefail
+    kubeadm init \
+      --apiserver-advertise-address=192.168.56.10 \
+      --pod-network-cidr=10.244.0.0/16 \
+      --kubernetes-version={{ kubeadm_ver.stdout | trim }} \
+      --cri-socket=unix:///run/containerd/containerd.sock | tee /root/kubeadm-init.out
+  args:
+    executable: /bin/bash
+  when: not kubeadm_config.stat.exists
+
+- name: Enable and start kubelet (just in case)
+  systemd:
+    name: kubelet
+    enabled: yes
+    state: started
+
+- name: Create .kube directory for vagrant user
+  file:
+    path: /home/vagrant/.kube
+    state: directory
+    owner: vagrant
+    group: vagrant
+    mode: '0755'
+
+- name: Copy kubeconfig to vagrant user
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/vagrant/.kube/config
+    remote_src: yes
+    owner: vagrant
+    group: vagrant
+    mode: '0600'
+
+- name: Check if Calico is already installed
+  command: kubectl get daemonset calico-node -n kube-system
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: calico_status
+  failed_when: false
+  changed_when: false
+
+- name: Apply Calico CNI
+  shell: |
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+    kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/calico.yaml
+  when: calico_status.rc != 0
+
+- name: Save kubeadm join command
+  shell: |
+    kubeadm token create --print-join-command > /home/vagrant/kubeadm-join.sh
+  args:
+    creates: /home/vagrant/kubeadm-join.sh
+
+- name: Make join script executable
+  file:
+    path: /home/vagrant/kubeadm-join.sh
+    mode: '0755'
+    owner: vagrant
+    group: vagrant
+
+# ---------------------------------------------------------------------
+# NFS Server — exports /share for the nfs-subdir-external-provisioner
+# ---------------------------------------------------------------------
+
+- name: Install nfs-kernel-server
+  apt:
+    name: nfs-kernel-server
+    state: present
+    update_cache: yes
+
+- name: Create /share export directory
+  file:
+    path: /share
+    state: directory
+    owner: nobody
+    group: nogroup
+    mode: '0777'
+
+- name: Export /share via NFS to cluster subnet
+  lineinfile:
+    path: /etc/exports
+    line: '/share 192.168.56.0/24(rw,sync,no_subtree_check,no_root_squash)'
+    regexp: '^/share'
+    state: present
+
+- name: Enable and start nfs-kernel-server
+  systemd:
+    name: nfs-kernel-server
+    state: started
+    enabled: true
+
+- name: Re-export NFS shares
+  command: exportfs -ra

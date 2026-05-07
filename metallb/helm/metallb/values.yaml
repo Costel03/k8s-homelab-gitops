@@ -1,0 +1,28 @@
+controller:
+  replicas: 1
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+speaker:
+  logLevel: info
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    effect: NoSchedule
+    operator: Exists
+  - key: node-role.kubernetes.io/master
+    effect: NoSchedule
+    operator: Exists

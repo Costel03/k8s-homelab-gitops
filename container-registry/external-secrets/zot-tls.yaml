@@ -1,0 +1,26 @@
+# TLS certificate for zot.local (Zot container registry)
+# Vault engine: tls (KV v2)   secret path: zot   keys: tls.crt, tls.key
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: zot-tls
+  namespace: container-registry
+spec:
+  refreshInterval: 24h
+  secretStoreRef:
+    name: vault-tls
+    kind: ClusterSecretStore
+  target:
+    name: zot-tls
+    creationPolicy: Owner
+    template:
+      type: kubernetes.io/tls
+  data:
+  - secretKey: tls.crt
+    remoteRef:
+      key: zot
+      property: tls.crt
+  - secretKey: tls.key
+    remoteRef:
+      key: zot
+      property: tls.key

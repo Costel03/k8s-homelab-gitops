@@ -1,0 +1,65 @@
+# Ansible-related
+*.retry
+*.log
+*.out
+*.bak
+*.swp
+*.tmp
+vault_pass.txt
+secrets.yml
+*.tar.gz
+
+# Vagrant
+.vagrant/
+*.box
+
+# SSH keys (if generated during playbook runs)
+*.pem
+*.key
+id_rsa*
+id_dsa*
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+.Python
+
+# Temporary files
+tmp/
+*.tmp
+*.old
+*.orig
+
+# kubeconfig or other K8s files generated
+kubeadm-init.out
+kubeadm-join.sh
+/home/vagrant/kubeadm-join.sh
+/etc/kubernetes/admin.conf
+.kube/
+
+# Inventory cache or dynamic inventory output
+inventory.cache/
+ansible_inventory.yaml
+
+# Terraform or other tool artifacts (if applicable)
+*.tfstate
+*.tfstate.*
+
+# VSCode and JetBrains IDEs
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
+
+# Backup files
+*~

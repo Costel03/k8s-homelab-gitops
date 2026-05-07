@@ -1,0 +1,160 @@
+---
+# All packages (containerd, kubelet, kubeadm, kubectl, chrony, iptables-legacy,
+# kernel module config, sysctl config, containerd config) are pre-baked into the
+# base box via build-base-box.sh. This role only handles runtime configuration.
+
+- name: Ensure nfs-common is installed (needed for NFS PVC mounts)
+  apt:
+    name: nfs-common
+    state: present
+    update_cache: yes
+
+- name: Enable and start chrony
+  systemd:
+    name: chronyd
+    state: started
+    enabled: true
+
+- name: Force immediate clock sync
+  command: chronyc makestep
+  become: true
+
+- name: Disable swap at runtime
+  command: swapoff -a
+  become: true
+
+- name: Remove swap entry from fstab (prevents swap re-enabling on reboot)
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+  become: true
+
+- name: Load overlay kernel module
+  modprobe:
+    name: overlay
+    state: present
+
+- name: Load br_netfilter kernel module
+  modprobe:
+    name: br_netfilter
+    state: present
+
+- name: Reload sysctl
+  command: sysctl --system
+  become: true
+
+# Wipe containerd state from the linked-clone base image so each node
+# starts with a clean runtime (no stale container name conflicts).
+- name: Stop containerd before wiping state
+  systemd:
+    name: containerd
+    state: stopped
+
+- name: Wipe containerd state database
+  file:
+    path: /var/lib/containerd
+    state: absent
+  become: true
+
+- name: Reexec systemd
+  command: systemctl daemon-reexec
+  become: true
+
+# ── Container registry mirrors ───────────────────────────────────────────────
+# Enable certs.d so containerd uses per-registry hosts.toml files.
+# Containerd falls back to the original registry if the mirror is unreachable.
+- name: Enable containerd registry config_path for certs.d
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'config_path = ""'
+    replace: 'config_path = "/etc/containerd/certs.d"'
+  become: true
+
+- name: Create containerd certs.d registry directories
+  file:
+    path: "/etc/containerd/certs.d/{{ item }}"
+    state: directory
+    mode: '0755'
+  become: true
+  loop:
+  - docker.io
+  - ghcr.io
+  - quay.io
+  - registry.k8s.io
+  - zot.local
+
+- name: Configure containerd mirror — docker.io → zot.local
+  copy:
+    dest: /etc/containerd/certs.d/docker.io/hosts.toml
+    content: |
+      server = "https://registry-1.docker.io"
+
+      [host."https://192.168.56.23"]
+        capabilities = ["pull", "resolve"]
+        skip_verify = true
+  become: true
+
+- name: Configure containerd mirror — ghcr.io → zot.local
+  copy:
+    dest: /etc/containerd/certs.d/ghcr.io/hosts.toml
+    content: |
+      server = "https://ghcr.io"
+
+      [host."https://192.168.56.23"]
+        capabilities = ["pull", "resolve"]
+        skip_verify = true
+  become: true
+
+- name: Configure containerd mirror — quay.io → zot.local
+  copy:
+    dest: /etc/containerd/certs.d/quay.io/hosts.toml
+    content: |
+      server = "https://quay.io"
+
+      [host."https://192.168.56.23"]
+        capabilities = ["pull", "resolve"]
+        skip_verify = true
+  become: true
+
+- name: Configure containerd mirror — registry.k8s.io → zot.local
+  copy:
+    dest: /etc/containerd/certs.d/registry.k8s.io/hosts.toml
+    content: |
+      server = "https://registry.k8s.io"
+
+      [host."https://192.168.56.23"]
+        capabilities = ["pull", "resolve"]
+        skip_verify = true
+  become: true
+
+- name: Configure containerd direct access for zot.local
+  copy:
+    dest: /etc/containerd/certs.d/zot.local/hosts.toml
+    content: |
+      server = "https://zot.local"
+
+      [host."https://192.168.56.23"]
+        capabilities = ["pull", "resolve", "push"]
+        skip_verify = true
+  become: true
+
+- name: Add zot.local to /etc/hosts
+  lineinfile:
+    path: /etc/hosts
+    line: "192.168.56.23  zot.local"
+    state: present
+  become: true
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: Restart and enable containerd
+  systemd:
+    name: containerd
+    state: restarted
+    enabled: true
+
+- name: Enable and start kubelet
+  systemd:
+    name: kubelet
+    enabled: yes
+    state: started

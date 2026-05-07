@@ -1,0 +1,19 @@
+nfs:
+  server: 192.168.56.10
+  path: /share
+
+storageClass:
+  name: nfs-client
+  defaultClass: true
+  reclaimPolicy: Retain
+  archiveOnDelete: false
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

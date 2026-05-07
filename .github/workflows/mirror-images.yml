@@ -1,0 +1,107 @@
+name: 🐳 Pre-warm Zot Registry Cache
+
+# Explicitly mirrors a curated list of images into Zot so that
+# the NEXT cluster deploy pulls everything locally (no Docker Hub round-trip).
+#
+# Run this workflow AFTER bootstrap.yml completes and Zot is Healthy.
+# Containerd on every node is configured to try zot.local first (192.168.56.23)
+# and fall back to upstream — so pre-warming here means all future pod starts
+# are served from local storage.
+#
+# Prerequisites on the runner (master):
+#   - CA cert trusted  (bootstrap.yml does this automatically)
+#   - Zot is Healthy   (https://zot.local reachable from master)
+
+on:
+  workflow_dispatch:
+    inputs:
+      extra_image:
+        description: "Optional extra image to mirror (e.g. docker.io/nginx:1.27)"
+        required: false
+        default: ""
+
+jobs:
+  mirror:
+    name: Mirror images to Zot
+    runs-on: self-hosted
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          # HashiCorp Vault
+          - src: docker.io/hashicorp/vault:1.16.1
+            dst: hashicorp/vault:1.16.1
+
+          # nginx-ingress controller (chart 4.12.1 → controller v1.12.1)
+          - src: registry.k8s.io/ingress-nginx/controller:v1.12.1
+            dst: ingress-nginx/controller:v1.12.1
+          - src: registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.5.2
+            dst: ingress-nginx/kube-webhook-certgen:v1.5.2
+
+          # MetalLB
+          - src: quay.io/metallb/controller:v0.14.9
+            dst: metallb/controller:v0.14.9
+          - src: quay.io/metallb/speaker:v0.14.9
+            dst: metallb/speaker:v0.14.9
+
+          # External Secrets Operator
+          - src: ghcr.io/external-secrets/external-secrets:v0.10.7
+            dst: external-secrets/external-secrets:v0.10.7
+
+          # Grafana
+          - src: docker.io/grafana/grafana:11.4.0
+            dst: grafana/grafana:11.4.0
+
+          # Loki
+          - src: docker.io/grafana/loki:3.3.2
+            dst: grafana/loki:3.3.2
+
+          # Prometheus
+          - src: quay.io/prometheus/prometheus:v3.1.0
+            dst: prometheus/prometheus:v3.1.0
+          - src: quay.io/prometheus/alertmanager:v0.27.0
+            dst: prometheus/alertmanager:v0.27.0
+          - src: quay.io/prometheus/node-exporter:v1.8.2
+            dst: prometheus/node-exporter:v1.8.2
+          - src: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.14.0
+            dst: kube-state-metrics/kube-state-metrics:v2.14.0
+
+          # NFS provisioner
+          - src: registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:v4.0.2
+            dst: sig-storage/nfs-subdir-external-provisioner:v4.0.2
+
+    steps:
+    - name: Install skopeo
+      run: command -v skopeo || sudo apt-get install -y -qq skopeo
+
+    - name: Mirror ${{ matrix.image.src }} → zot.local/${{ matrix.image.dst }}
+      run: |
+        echo "Mirroring: ${{ matrix.image.src }} → zot.local/${{ matrix.image.dst }}"
+        skopeo copy \
+          --dest-tls-verify=false \
+          "docker://${{ matrix.image.src }}" \
+          "docker://zot.local/${{ matrix.image.dst }}"
+        echo "✅ Done"
+
+  mirror-extra:
+    name: Mirror extra image
+    runs-on: self-hosted
+    if: ${{ inputs.extra_image != '' }}
+    timeout-minutes: 15
+    steps:
+    - name: Install skopeo
+      run: command -v skopeo || sudo apt-get install -y -qq skopeo
+
+    - name: Mirror ${{ inputs.extra_image }} → zot.local
+      run: |
+        SRC="${{ inputs.extra_image }}"
+        # Strip registry prefix to get the destination path
+        DST=$(echo "$SRC" | sed 's|^[^/]*/||')
+        echo "Mirroring: $SRC → zot.local/$DST"
+        skopeo copy \
+          --dest-tls-verify=false \
+          "docker://$SRC" \
+          "docker://zot.local/$DST"
+        echo "✅ Done"

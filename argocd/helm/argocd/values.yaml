@@ -1,0 +1,31 @@
+global:
+  image:
+    tag: ""
+
+server:
+  replicas: 1
+
+  service:
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "192.168.56.20"
+
+  ingress:
+    enabled: false
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+controller:
+  replicas: 1
+
+applicationSet:
+  replicas: 1
+
+repoServer:
+  replicas: 1

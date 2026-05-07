@@ -1,0 +1,236 @@
+name: 🚀 Bootstrap Cluster
+
+# Automates the full Kubernetes cluster setup after `vagrant up` completes.
+# Prerequisites:
+#   - VMs are up (vagrant up ran successfully, Ansible provisioned)
+#   - kubectl works on the runner (master node)
+#   - GitHub Actions secrets set:
+#       ARGOCD_ADMIN_PASSWORD  — ArgoCD admin password
+#       GRAFANA_ADMIN_PASSWORD — Grafana admin password
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_vault_init:
+        description: "Force Vault re-initialization (WARNING: destroys all stored secrets)"
+        type: boolean
+        default: false
+        required: false
+
+jobs:
+  bootstrap:
+    name: Bootstrap
+    runs-on: self-hosted
+    timeout-minutes: 60
+
+    steps:
+    # ── Checkout ──────────────────────────────────────────────────────────────
+    - name: Checkout k8s-homelab-gitops
+      uses: actions/checkout@v4
+
+    # ── Prerequisites ─────────────────────────────────────────────────────────
+    - name: Install prerequisites
+      run: |
+        set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        sudo apt-get update -qq
+
+        command -v jq     || sudo apt-get install -y -qq jq
+        command -v skopeo || sudo apt-get install -y -qq skopeo
+
+        command -v helm || {
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        }
+
+        command -v vault || {
+          VAULT_VERSION=1.16.1
+          curl -fsSL \
+            "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip" \
+            -o /tmp/vault.zip
+          sudo unzip -oq /tmp/vault.zip -d /usr/local/bin/ vault
+          rm /tmp/vault.zip
+        }
+
+    # ── ArgoCD ────────────────────────────────────────────────────────────────
+    - name: Install / upgrade ArgoCD
+      run: |
+        set -euo pipefail
+        kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+
+        helm repo add argo https://argoproj.github.io/argo-helm --force-update
+        helm repo update
+
+        helm upgrade --install argocd argo/argo-cd \
+          --namespace argocd \
+          --values argocd/helm/argocd/values.yaml \
+          --wait --timeout 5m
+
+    - name: Wait for Application CRD
+      run: |
+        kubectl wait --for=condition=Established \
+          crd/applications.argoproj.io --timeout=60s
+
+    # ── App-of-Apps ───────────────────────────────────────────────────────────
+    - name: Apply App-of-Apps
+      run: |
+        kubectl apply -f argocd/bootstrap/app-of-apps.yaml
+        echo "ArgoCD will now sync all applications automatically."
+
+    # ── Vault init + unseal ───────────────────────────────────────────────────
+    - name: Wait for Vault pod to be Running
+      run: |
+        echo "Waiting for Vault pod to be created by ArgoCD..."
+        for i in $(seq 1 60); do
+          kubectl get pod hashicorp-vault-0 -n hashicorp-vault &>/dev/null && break
+          echo "  [$i/60] Pod not yet created — waiting 10s..."
+          sleep 10
+        done
+        kubectl wait pod/hashicorp-vault-0 -n hashicorp-vault \
+          --for=condition=Ready --timeout=300s
+
+    - name: Initialize Vault
+      run: |
+        set -euo pipefail
+        INITIALIZED=$(kubectl exec -n hashicorp-vault hashicorp-vault-0 -- \
+          vault status -format=json 2>/dev/null | jq -r '.initialized' || echo "false")
+
+        if [ "$INITIALIZED" = "true" ] && [ "${{ inputs.force_vault_init }}" != "true" ]; then
+          echo "Vault is already initialized."
+          if [ ! -f ~/vault-init.json ]; then
+            echo "::error::Vault is initialized but ~/vault-init.json is missing on master."
+            echo "::error::Recover the root token and unseal key manually, save as ~/vault-init.json."
+            exit 1
+          fi
+        else
+          echo "Initializing Vault (key-shares=1 key-threshold=1)..."
+          kubectl exec -n hashicorp-vault hashicorp-vault-0 -- \
+            vault operator init -key-shares=1 -key-threshold=1 -format=json \
+            | tee ~/vault-init.json
+          chmod 600 ~/vault-init.json
+          echo "Done — ~/vault-init.json saved."
+        fi
+
+    - name: Unseal Vault
+      run: |
+        SEALED=$(kubectl exec -n hashicorp-vault hashicorp-vault-0 -- \
+          vault status -format=json 2>/dev/null | jq -r '.sealed' || echo "true")
+        if [ "$SEALED" = "true" ]; then
+          kubectl exec -n hashicorp-vault hashicorp-vault-0 -- \
+            vault operator unseal "$(jq -r '.unseal_keys_b64[0]' ~/vault-init.json)"
+          echo "Vault unsealed."
+        else
+          echo "Vault is already unsealed."
+        fi
+
+    # ── Kubernetes secrets ────────────────────────────────────────────────────
+    - name: Create vault-token and vault-unseal-key secrets
+      run: |
+        set -euo pipefail
+        ROOT_TOKEN=$(jq -r '.root_token'       ~/vault-init.json)
+        UNSEAL_KEY=$(jq -r '.unseal_keys_b64[0]' ~/vault-init.json)
+
+        # Ensure eso namespace exists (ArgoCD may not have synced it yet)
+        kubectl create namespace eso --dry-run=client -o yaml | kubectl apply -f -
+
+        # ESO uses this to authenticate against Vault
+        kubectl create secret generic vault-token \
+          --namespace eso \
+          --from-literal=token="$ROOT_TOKEN" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+        # Auto-unseal Deployment reads this on every sealed check
+        kubectl create secret generic vault-unseal-key \
+          --namespace hashicorp-vault \
+          --from-literal=key="$UNSEAL_KEY" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+        echo "vault-token (eso) + vault-unseal-key (hashicorp-vault) created."
+
+    # ── Certs + passwords ─────────────────────────────────────────────────────
+    - name: Generate certs and populate Vault
+      env:
+        ARGOCD_ADMIN_PASSWORD:  ${{ secrets.ARGOCD_ADMIN_PASSWORD }}
+        GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+      run: |
+        set -euo pipefail
+
+        # Port-forward Vault (ClusterIP — not directly reachable)
+        kubectl port-forward -n hashicorp-vault svc/hashicorp-vault 8200:8200 &
+        PF_PID=$!
+        sleep 4
+
+        export VAULT_ADDR=http://127.0.0.1:8200
+        export VAULT_TOKEN=$(jq -r '.root_token' ~/vault-init.json)
+
+        bash argocd/generate-certs.sh
+
+        kill "$PF_PID" 2>/dev/null || true
+
+    - name: Trust CA cert on master node
+      run: |
+        if [ -f ~/homelab-ca.crt ]; then
+          sudo cp ~/homelab-ca.crt /usr/local/share/ca-certificates/homelab-ca.crt
+          sudo update-ca-certificates
+          echo "CA cert trusted. skopeo / docker pushes to zot.local will now work."
+        else
+          echo "::warning::~/homelab-ca.crt not found — skipping CA trust."
+        fi
+
+    # ── ExternalSecrets sync ──────────────────────────────────────────────────
+    - name: Force ExternalSecrets sync
+      run: |
+        # Give ESO a moment to register the vault-token secret
+        sleep 15
+        kubectl annotate externalsecret -A --all \
+          force-sync="$(date +%s)" --overwrite 2>/dev/null || true
+        echo "ExternalSecrets sync triggered."
+
+    # ── Wait for healthy apps ─────────────────────────────────────────────────
+    - name: Wait for all ArgoCD applications to be Healthy
+      run: |
+        echo "Waiting for all applications (timeout 20 min)..."
+        for i in $(seq 1 80); do
+          NOT_HEALTHY=$(kubectl get applications -n argocd \
+            -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.health.status}{"\n"}{end}' \
+            | grep -v " Healthy" | grep -v "^$" || true)
+
+          if [ -z "$NOT_HEALTHY" ]; then
+            echo "✅ All applications are Healthy!"
+            break
+          fi
+
+          if [ "$i" -eq 80 ]; then
+            echo "⚠️ Timeout reached. Unhealthy apps:"
+            echo "$NOT_HEALTHY"
+          else
+            NAMES=$(echo "$NOT_HEALTHY" | awk '{print $1}' | tr '\n' ' ')
+            echo "  [$i/80] Waiting for: $NAMES"
+            sleep 15
+          fi
+        done
+        echo ""
+        echo "=== Final Application Status ==="
+        kubectl get applications -n argocd
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    - name: Print access info
+      if: always()
+      run: |
+        echo ""
+        echo "════════════════════════════════════════════════════"
+        echo "  Cluster Bootstrap Complete"
+        echo "════════════════════════════════════════════════════"
+        echo ""
+        echo "  ArgoCD:  https://argocd.local   192.168.56.20"
+        echo "  Grafana: https://grafana.local   192.168.56.21"
+        echo "  Vault:   https://vault.local     192.168.56.22"
+        echo "  Zot:     https://zot.local       192.168.56.23"
+        echo ""
+        echo "  Hosts file (C:\\Windows\\System32\\drivers\\etc\\hosts):"
+        echo "    192.168.56.20  argocd.local"
+        echo "    192.168.56.21  grafana.local"
+        echo "    192.168.56.22  vault.local"
+        echo "    192.168.56.23  zot.local"
+        echo "  CA cert: ~/homelab-ca.crt"
+        echo "  Windows: Import-Certificate -FilePath '\\\\wsl.localhost\\Ubuntu-24.04\\home\\vagrant\\homelab-ca.crt' -CertStoreLocation 'Cert:\\LocalMachine\\Root'"
+        echo "════════════════════════════════════════════════════"

@@ -1,0 +1,69 @@
+---
+- name: Reset kubeadm on the worker node (safe retry setup)
+  become: true
+  command: kubeadm reset -f
+  ignore_errors: true
+
+- name: Delete stale node object from API server (allows clean re-join)
+  delegate_to: k8s-master
+  become: true
+  shell: |
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+      delete node {{ inventory_hostname }} --ignore-not-found=true
+  changed_when: false
+
+- name: Remove old CNI configuration (for a clean state)
+  become: true
+  file:
+    path: /etc/cni/net.d
+    state: absent
+
+- name: Restart containerd to ensure clean runtime
+  become: true
+  systemd:
+    name: containerd
+    state: restarted
+    enabled: true
+
+- name: Wait for kubeadm join script to be created on master
+  delegate_to: k8s-master
+  wait_for:
+    path: /home/vagrant/kubeadm-join.sh
+    state: present
+    timeout: 300
+
+- name: Fetch kubeadm join script from master
+  delegate_to: k8s-master
+  fetch:
+    src: /home/vagrant/kubeadm-join.sh
+    dest: /tmp/kubeadm-join.sh
+    flat: yes
+
+- name: Copy kubeadm join script to worker node
+  become: true
+  copy:
+    src: /tmp/kubeadm-join.sh
+    dest: /home/vagrant/kubeadm-join.sh
+    mode: '0755'
+    owner: vagrant
+    group: vagrant
+
+- name: Join Kubernetes cluster
+  become: true
+  command: bash /home/vagrant/kubeadm-join.sh
+  args:
+    creates: /etc/kubernetes/kubelet.conf
+
+- name: Wait for kubelet to register this node with the control plane
+  become: true
+  wait_for:
+    path: /etc/kubernetes/kubelet.conf
+    timeout: 60
+
+- name: Create .kube directory for vagrant user
+  file:
+    path: /home/vagrant/.kube
+    state: directory
+    mode: '0755'
+    owner: vagrant
+    group: vagrant

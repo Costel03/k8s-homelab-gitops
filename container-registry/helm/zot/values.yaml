@@ -1,0 +1,79 @@
+# TLS certificate managed by ExternalSecret (external-secrets/zot-tls.yaml)
+# It creates zot-tls from Vault engine: tls, path: zot, keys: tls.crt, tls.key
+# Zot handles TLS termination directly (like Grafana).
+#
+# Vault KV v2 secrets to create before first sync:
+#   Engine: tls   path: zot   keys: tls.crt, tls.key
+
+httpGet:
+  scheme: HTTPS
+
+startupProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 12
+
+service:
+  type: LoadBalancer
+  port: 443
+  targetPort: 5000
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: "192.168.56.23"
+
+ingress:
+  enabled: false
+
+persistence: true
+pvc:
+  create: true
+  accessMode: ReadWriteOnce
+  storage: 50Gi
+  storageClassName: nfs-client
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 512Mi
+
+configFiles:
+  config.json: |-
+    {
+      "distSpecVersion": "1.1.0",
+      "storage": {
+        "rootDirectory": "/var/lib/registry"
+      },
+      "http": {
+        "address": "0.0.0.0",
+        "port": "5000",
+        "tls": {
+          "cert": "/etc/zot/tls/tls.crt",
+          "key": "/etc/zot/tls/tls.key"
+        }
+      },
+      "log": {
+        "level": "warn"
+      },
+      "extensions": {
+        "search": {
+          "enable": true
+        },
+        "ui": {
+          "enable": true
+        }
+      }
+    }
+
+mountConfig: true
+
+extraVolumes:
+- name: zot-tls
+  secret:
+    secretName: zot-tls
+
+extraVolumeMounts:
+- name: zot-tls
+  mountPath: /etc/zot/tls
+  readOnly: true
