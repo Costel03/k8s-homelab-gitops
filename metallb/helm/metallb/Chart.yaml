@@ -3,9 +3,9 @@ name: metallb
 description: Umbrella chart for MetalLB load balancer
 type: application
 version: 1.0.0
-appVersion: "0.14.9"
+appVersion: "v0.15.3"
 
 dependencies:
 - name: metallb
-  version: "0.14.9"
+  version: "0.15.3"
   repository: https://metallb.github.io/metallb

@@ -1,0 +1,43 @@
+# ── Secrets & credentials ────────────────────────────────────────
+vault-init.json
+*.token
+*.roottoken
+kubeconfig
+.env
+.env.*
+
+# ── TLS / PKI artifacts ──────────────────────────────────────────
+# (certs should live in Vault, not in git)
+*.key
+*.crt
+*.pem
+*.p12
+*.pfx
+*.csr
+
+# ── Vagrant ──────────────────────────────────────────────────────
+k8s-vagrant-ansible/.vagrant/
+k8s-vagrant-ansible/base-box/.vagrant/
+*.box
+
+# ── Ansible ──────────────────────────────────────────────────────
+*.retry
+ansible-ubuntu/*.log
+
+# ── OS ───────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Editor / IDE ─────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Temporary / build ────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+*.log

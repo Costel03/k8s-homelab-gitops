@@ -3,15 +3,17 @@
 # kernel module config, sysctl config, containerd config) are pre-baked into the
 # base box via build-base-box.sh. This role only handles runtime configuration.
 
-- name: Ensure nfs-common is installed (needed for NFS PVC mounts)
+- name: Ensure required packages are installed
   apt:
-    name: nfs-common
+    name:
+    - nfs-common
+    - chrony
     state: present
     update_cache: yes
 
 - name: Enable and start chrony
   systemd:
-    name: chronyd
+    name: chrony
     state: started
     enabled: true
 
@@ -40,8 +42,127 @@
     name: br_netfilter
     state: present
 
+- name: Write Kubernetes sysctl config
+  copy:
+    dest: /etc/sysctl.d/kubernetes.conf
+    content: |
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.bridge.bridge-nf-call-iptables  = 1
+      net.ipv4.ip_forward                 = 1
+    mode: '0644'
+  become: true
+
 - name: Reload sysctl
   command: sysctl --system
+  become: true
+
+# ── Container runtime + Kubernetes packages ──────────────────────────────────
+- name: Kill unattended-upgrades to release apt lock
+  shell: |
+    systemctl stop unattended-upgrades 2>/dev/null || true
+    systemctl disable unattended-upgrades 2>/dev/null || true
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 2; done
+  become: true
+
+- name: Create apt keyrings directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Download Docker apt signing key
+  get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /tmp/docker.gpg
+    mode: '0644'
+    force: false
+  become: true
+
+- name: Dearmor Docker apt signing key
+  shell: gpg --dearmor < /tmp/docker.gpg > /etc/apt/keyrings/docker.gpg
+  args:
+    creates: /etc/apt/keyrings/docker.gpg
+  become: true
+
+- name: Add Docker apt repository
+  copy:
+    dest: /etc/apt/sources.list.d/docker.list
+    content: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable\n"
+    mode: '0644'
+  become: true
+
+- name: Download Kubernetes apt signing key
+  get_url:
+    url: https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key
+    dest: /tmp/kubernetes.gpg
+    mode: '0644'
+    force: false
+  become: true
+
+- name: Dearmor Kubernetes apt signing key
+  shell: gpg --dearmor < /tmp/kubernetes.gpg > /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  args:
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  become: true
+
+- name: Add Kubernetes apt repository
+  copy:
+    dest: /etc/apt/sources.list.d/kubernetes.list
+    content: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /\n"
+    mode: '0644'
+  become: true
+
+- name: Install containerd.io and Kubernetes packages
+  apt:
+    name:
+    - containerd.io
+    - kubelet
+    - kubeadm
+    - kubectl
+    state: present
+    update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  become: true
+
+- name: Hold Kubernetes packages at current version
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  become: true
+  loop:
+  - kubelet
+  - kubeadm
+  - kubectl
+
+- name: Generate default containerd config (always overwrite to ensure CRI is enabled)
+  shell: containerd config default > /etc/containerd/config.toml
+  become: true
+
+- name: Configure containerd SystemdCgroup
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+  become: true
+
+- name: Configure containerd sandbox_image
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'sandbox_image = ".*"'
+    replace: 'sandbox_image = "registry.k8s.io/pause:3.10.1"'
+  become: true
+
+- name: Write crictl config
+  copy:
+    dest: /etc/crictl.yaml
+    content: |
+      runtime-endpoint: unix:///run/containerd/containerd.sock
+      image-endpoint: unix:///run/containerd/containerd.sock
+      timeout: 10
+      debug: false
+    mode: '0644'
   become: true
 
 # Wipe containerd state from the linked-clone base image so each node
@@ -50,6 +171,7 @@
   systemd:
     name: containerd
     state: stopped
+  ignore_errors: true
 
 - name: Wipe containerd state database
   file:

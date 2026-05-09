@@ -87,7 +87,7 @@ EOF
 
     echo "==> Enable services"
     systemctl daemon-reexec
-    systemctl enable containerd kubelet chronyd
+    systemctl enable containerd kubelet chrony
 
     echo "==> Pre-pull kubeadm control-plane images (speeds up kubeadm init)"
     systemctl start containerd
