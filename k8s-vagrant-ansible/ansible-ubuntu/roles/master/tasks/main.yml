@@ -63,6 +63,20 @@
   when: not kubeadm_config.stat.exists
   ignore_errors: true
 
+- name: Kill any lingering kube-apiserver after reset
+  become: true
+  command: pkill -9 kube-apiserver
+  failed_when: false
+  when: not kubeadm_config.stat.exists
+
+- name: Wait for port 6443 to be free after reset
+  wait_for:
+    port: 6443
+    state: stopped
+    timeout: 60
+    delay: 2
+  when: not kubeadm_config.stat.exists
+
 - name: Wait for hostonly interface (192.168.56.10) to be assigned
   shell: ip addr show | grep -c '192.168.56.10'
   register: iface_check
@@ -87,6 +101,8 @@
       localAPIEndpoint:
         advertiseAddress: 192.168.56.10
         bindPort: 6443
+      timeouts:
+        controlPlaneComponentHealthCheck: 8m0s
       nodeRegistration:
         criSocket: unix:///run/containerd/containerd.sock
       ---
@@ -95,8 +111,6 @@
       kubernetesVersion: {{ kubeadm_ver.stdout | trim }}
       networking:
         podSubnet: 10.244.0.0/16
-      timeouts:
-        controlPlaneComponentHealthCheck: 8m0s
       ---
       apiVersion: kubelet.config.k8s.io/v1beta1
       kind: KubeletConfiguration
