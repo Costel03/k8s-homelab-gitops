@@ -1,0 +1,17 @@
+apps:
+  argocd:
+    enabled: true
+  containerRegistry:
+    enabled: true
+  externalSecretsOperator:
+    enabled: true
+  hashicorpVault:
+    enabled: true
+  metallb:
+    enabled: true
+  monitoring:
+    enabled: false
+  nfs:
+    enabled: true
+  nginxIngress:
+    enabled: true
