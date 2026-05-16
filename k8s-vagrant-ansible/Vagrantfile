@@ -1,12 +1,12 @@
 VAGRANTFILE_API_VERSION = "2"
 
 # Node definitions – easy to add/remove nodes
-# Host: 22 logical CPUs / 32 GB RAM — reserve ~4 CPUs + 6 GB for Windows + WSL
-# Total VMs: 18 CPUs / 26 GB RAM
+# Host: 22 logical CPUs / 32 GB RAM — reserve 7 CPUs + 12 GB for Windows + WSL
+# Total VMs: 15 CPUs / 20 GB RAM
 NODES = [
-  { name: "k8s-master",  ip: "192.168.56.10", memory: 4096,  cpus: 2 },  # control-plane only
-  { name: "k8s-worker1", ip: "192.168.56.11", memory: 12288, cpus: 8 },
-  { name: "k8s-worker2", ip: "192.168.56.12", memory: 12288, cpus: 8 },
+  { name: "k8s-master",  ip: "192.168.56.10", memory: 4096,  cpus: 3 },  # control-plane only
+  { name: "k8s-worker1", ip: "192.168.56.11", memory: 8192, cpus: 6 },
+  { name: "k8s-worker2", ip: "192.168.56.12", memory: 8192, cpus: 6 },
 ]
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|

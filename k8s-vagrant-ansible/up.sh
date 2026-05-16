@@ -87,7 +87,7 @@ done
 
 # ── 5. Run Ansible playbook ───────────────────────────────────────────
 echo "==> Running Ansible playbook..."
-ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
+LC_ALL=C.UTF-8 LANG=C.UTF-8 ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \
     -i "$SCRIPT_DIR/ansible-ubuntu/inventory.ini" \
     "$SCRIPT_DIR/ansible-ubuntu/playbook.yml"
 
