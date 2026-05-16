@@ -76,15 +76,38 @@
   register: kubeadm_ver
   when: not kubeadm_config.stat.exists
 
+- name: Write kubeadm init config (embeds failSwapOn + timeouts)
+  become: true
+  copy:
+    dest: /tmp/kubeadm-init-config.yaml
+    mode: '0644'
+    content: |
+      apiVersion: kubeadm.k8s.io/v1beta4
+      kind: InitConfiguration
+      localAPIEndpoint:
+        advertiseAddress: 192.168.56.10
+        bindPort: 6443
+      nodeRegistration:
+        criSocket: unix:///run/containerd/containerd.sock
+      ---
+      apiVersion: kubeadm.k8s.io/v1beta4
+      kind: ClusterConfiguration
+      kubernetesVersion: {{ kubeadm_ver.stdout | trim }}
+      networking:
+        podSubnet: 10.244.0.0/16
+      timeouts:
+        controlPlaneComponentHealthCheck: 8m0s
+      ---
+      apiVersion: kubelet.config.k8s.io/v1beta1
+      kind: KubeletConfiguration
+      failSwapOn: false
+  when: not kubeadm_config.stat.exists
+
 - name: Initialize Kubernetes control plane
   become: true
   shell: |
     set -o pipefail
-    kubeadm init \
-      --apiserver-advertise-address=192.168.56.10 \
-      --pod-network-cidr=10.244.0.0/16 \
-      --kubernetes-version={{ kubeadm_ver.stdout | trim }} \
-      --cri-socket=unix:///run/containerd/containerd.sock | tee /root/kubeadm-init.out
+    kubeadm init --config /tmp/kubeadm-init-config.yaml | tee /root/kubeadm-init.out
   args:
     executable: /bin/bash
   when: not kubeadm_config.stat.exists
