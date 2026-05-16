@@ -275,6 +275,33 @@
     state: restarted
     enabled: true
 
+- name: Install wait-for-eth1 systemd service (ensures hostonly NIC is up before kubelet)
+  copy:
+    dest: /etc/systemd/system/wait-for-eth1.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Wait for eth1 (192.168.56.x) to be ready
+      Before=kubelet.service
+      After=network.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c 'until ip addr show eth1 | grep -q 192.168.56; do sleep 2; done'
+      TimeoutSec=60
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  become: true
+
+- name: Enable wait-for-eth1 service
+  systemd:
+    name: wait-for-eth1.service
+    enabled: true
+    daemon_reload: true
+  become: true
+
 - name: Enable and start kubelet
   systemd:
     name: kubelet
