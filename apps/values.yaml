@@ -2,7 +2,7 @@ apps:
   argocd:
     enabled: true
   containerRegistry:
-    enabled: false
+    enabled: true
   externalSecretsOperator:
     enabled: false
   hashicorpVault:
@@ -12,6 +12,6 @@ apps:
   monitoring:
     enabled: true
   nfs:
-    enabled: false
+    enabled: true
   nginxIngress:
     enabled: true
