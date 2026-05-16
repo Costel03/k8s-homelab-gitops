@@ -7,6 +7,7 @@
 # Usage:
 #   ./rebuild.sh               # fresh build (VMs must not already exist)
 #   ./rebuild.sh --destroy     # destroy existing VMs first, then full rebuild
+#   ./rebuild.sh --skip-ansible  # skip VM/Ansible, go straight to ArgoCD bootstrap
 #
 # Optional env vars (skip interactive password prompts):
 #   export ARGOCD_ADMIN_PASSWORD=yourpassword
@@ -16,9 +17,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DESTROY=false
+SKIP_ANSIBLE=false
 
 for arg in "$@"; do
-  [[ "$arg" == "--destroy" ]] && DESTROY=true
+  [[ "$arg" == "--destroy" ]]      && DESTROY=true
+  [[ "$arg" == "--skip-ansible" ]] && SKIP_ANSIBLE=true
 done
 
 # ── 0. Optionally destroy existing VMs ──────────────────────────────────────
@@ -28,7 +31,11 @@ if $DESTROY; then
 fi
 
 # ── 1. Bring up cluster (VMs + Ansible + kubeconfig) ────────────────────────
-bash "$SCRIPT_DIR/k8s-vagrant-ansible/up.sh"
+if $SKIP_ANSIBLE; then
+  echo "==> Skipping VM/Ansible (--skip-ansible passed)."
+else
+  bash "$SCRIPT_DIR/k8s-vagrant-ansible/up.sh"
+fi
 
 # ── 2. Install ArgoCD ────────────────────────────────────────────────────────
 echo "==> Installing ArgoCD..."
@@ -45,9 +52,27 @@ helm upgrade --install argocd argo/argo-cd \
 kubectl wait --for=condition=Established \
   crd/applications.argoproj.io --timeout=60s
 
+echo "==> Waiting for ArgoCD server to be ready..."
+kubectl wait deployment/argocd-server \
+  --namespace argocd \
+  --for=condition=Available \
+  --timeout=120s
+
+echo "==> Waiting for ArgoCD application-controller to be ready..."
+kubectl wait statefulset/argocd-application-controller \
+  --namespace argocd \
+  --for=jsonpath='{.status.readyReplicas}'=1 \
+  --timeout=120s
+
 # ── 3. Apply App-of-Apps ─────────────────────────────────────────────────────
+# Clear the full kubectl cache (not just discovery) to force fresh REST mapper.
 echo "==> Applying App-of-Apps..."
-kubectl apply -f "$SCRIPT_DIR/argocd/bootstrap/app-of-apps.yaml"
+for i in $(seq 1 30); do
+  rm -rf ~/.kube/cache/
+  kubectl apply -f "$SCRIPT_DIR/argocd/bootstrap/app-of-apps.yaml" && break
+  printf "  [%d/30] not ready yet, retrying in 10s...\n" "$i"
+  sleep 10
+done
 echo "    ArgoCD is now syncing all applications automatically."
 
 # ── 4. Wait for Vault pod ────────────────────────────────────────────────────

@@ -1,4 +1,38 @@
 ---
+- name: Create swap file (4GB) on master to prevent OOM
+  command: fallocate -l 4G /swapfile
+  args:
+    creates: /swapfile
+
+- name: Set swap file permissions
+  file:
+    path: /swapfile
+    mode: '0600'
+
+- name: Format swap file
+  command: mkswap /swapfile
+  args:
+    creates: /proc/swaps # not ideal but mkswap is safe to run again
+  changed_when: false
+
+- name: Enable swap
+  command: swapon /swapfile
+  changed_when: false
+  failed_when: false
+
+- name: Persist swap in fstab
+  lineinfile:
+    path: /etc/fstab
+    line: '/swapfile none swap sw 0 0'
+    state: present
+
+- name: Configure kubelet to tolerate swap (master uses swap for OOM protection)
+  copy:
+    dest: /etc/default/kubelet
+    content: "KUBELET_EXTRA_ARGS=--fail-swap-on=false\n"
+    mode: '0644'
+  become: true
+
 - name: Install wait-for-eth1 systemd service (ensures hostonly NIC is up before kubelet)
   copy:
     dest: /etc/systemd/system/wait-for-eth1.service
@@ -85,6 +119,33 @@
     name: kubelet
     enabled: yes
     state: started
+
+- name: Tune etcd timeouts for slow VirtualBox disk (heartbeat 250ms, election 2500ms)
+  shell: |
+    if ! grep -q 'heartbeat-interval' /etc/kubernetes/manifests/etcd.yaml; then
+      sed -i '/- --trusted-ca-file/a\    - --heartbeat-interval=250\n    - --election-timeout=2500' \
+        /etc/kubernetes/manifests/etcd.yaml
+    fi
+  args:
+    executable: /bin/bash
+
+- name: Tune kube-controller-manager leader election for slow etcd
+  shell: |
+    if ! grep -q 'leader-elect-lease-duration' /etc/kubernetes/manifests/kube-controller-manager.yaml; then
+      sed -i 's/--leader-elect=true/--leader-elect=true\n    - --leader-elect-lease-duration=60s\n    - --leader-elect-renew-deadline=40s/' \
+        /etc/kubernetes/manifests/kube-controller-manager.yaml
+    fi
+  args:
+    executable: /bin/bash
+
+- name: Tune kube-scheduler leader election for slow etcd
+  shell: |
+    if ! grep -q 'leader-elect-lease-duration' /etc/kubernetes/manifests/kube-scheduler.yaml; then
+      sed -i 's/--leader-elect=true/--leader-elect=true\n    - --leader-elect-lease-duration=60s\n    - --leader-elect-renew-deadline=40s/' \
+        /etc/kubernetes/manifests/kube-scheduler.yaml
+    fi
+  args:
+    executable: /bin/bash
 
 - name: Create .kube directory for vagrant user
   file:

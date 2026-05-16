@@ -4,7 +4,7 @@ VAGRANTFILE_API_VERSION = "2"
 # Host: 22 logical CPUs / 32 GB RAM — reserve ~4 CPUs + 6 GB for Windows + WSL
 # Total VMs: 18 CPUs / 26 GB RAM
 NODES = [
-  { name: "k8s-master",  ip: "192.168.56.10", memory: 2048,  cpus: 2 },  # control-plane only
+  { name: "k8s-master",  ip: "192.168.56.10", memory: 4096,  cpus: 2 },  # control-plane only
   { name: "k8s-worker1", ip: "192.168.56.11", memory: 12288, cpus: 8 },
   { name: "k8s-worker2", ip: "192.168.56.12", memory: 12288, cpus: 8 },
 ]

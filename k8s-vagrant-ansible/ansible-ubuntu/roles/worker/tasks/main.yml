@@ -18,11 +18,23 @@
     path: /etc/cni/net.d
     state: absent
 
-- name: Restart containerd to ensure clean runtime
+- name: Stop containerd to wipe stale linked-clone state
   become: true
   systemd:
     name: containerd
-    state: restarted
+    state: stopped
+
+- name: Wipe containerd state database (removes stale clone artifacts)
+  become: true
+  file:
+    path: /var/lib/containerd
+    state: absent
+
+- name: Start containerd with clean state
+  become: true
+  systemd:
+    name: containerd
+    state: started
     enabled: true
 
 - name: Wait for kubeadm join script to be created on master
@@ -47,6 +59,10 @@
     mode: '0755'
     owner: vagrant
     group: vagrant
+
+- name: Force clock sync before joining cluster
+  become: true
+  command: chronyc makestep
 
 - name: Join Kubernetes cluster
   become: true
