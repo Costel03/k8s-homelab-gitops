@@ -94,7 +94,7 @@
 
 - name: Download Kubernetes apt signing key
   get_url:
-    url: https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key
+    url: https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key
     dest: /tmp/kubernetes.gpg
     mode: '0644'
     force: false
@@ -109,7 +109,7 @@
 - name: Add Kubernetes apt repository
   copy:
     dest: /etc/apt/sources.list.d/kubernetes.list
-    content: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /\n"
+    content: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.33/deb/ /\n"
     mode: '0644'
   become: true
 
@@ -287,7 +287,7 @@
 
       [Service]
       Type=oneshot
-      ExecStart=/bin/bash -c 'until ip addr show eth1 | grep -q 192.168.56; do sleep 2; done'
+      ExecStart=/bin/bash -c 'until ip addr show enp0s8 | grep -q 192.168.56; do sleep 2; done'
       TimeoutSec=60
       RemainAfterExit=yes
 

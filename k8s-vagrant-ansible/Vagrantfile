@@ -17,8 +17,12 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   NODES.each do |node_cfg|
     config.vm.define node_cfg[:name] do |node|
       node.vm.hostname = node_cfg[:name]
-      node.vm.network "private_network", ip: node_cfg[:ip]
+      # auto_config: false — prevents Vagrant from calling
+      # `systemctl restart systemd-networkd` which times out on Ubuntu 24.04
+      # with VirtualBox+Hyper-V. The IP is configured by the provisioner below.
+      node.vm.network "private_network", ip: node_cfg[:ip], auto_config: false
       node.vm.synced_folder ".", "/vagrant", disabled: true
+      node.vm.boot_timeout = 600  # 10 min — needed under VirtualBox+Hyper-V compat mode
 
       node.vm.provider :virtualbox do |v|
         v.name         = node_cfg[:name]
@@ -28,6 +32,22 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         v.customize ["modifyvm", :id, "--paravirtprovider", "hyperv"]
         v.customize ["modifyvm", :id, "--nested-hw-virt", "on"]
       end
+
+      # Configure static IP on the VirtualBox host-only adapter (always enp0s8
+      # on Ubuntu Noble with VirtualBox adapter 2).
+      node.vm.provision "shell", name: "hostonly-ip", inline: <<~SHELL
+        set -e
+        tee /etc/netplan/99-vagrant-hostonly.yaml > /dev/null << 'NETPLAN'
+        network:
+          version: 2
+          renderer: networkd
+          ethernets:
+            enp0s8:
+              addresses: ["#{node_cfg[:ip]}/24"]
+        NETPLAN
+        chmod 600 /etc/netplan/99-vagrant-hostonly.yaml
+        netplan apply
+      SHELL
     end
   end
 end

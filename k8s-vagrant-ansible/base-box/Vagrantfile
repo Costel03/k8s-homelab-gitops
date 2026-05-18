@@ -1,7 +1,7 @@
 VAGRANTFILE_API_VERSION = "2"
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
-  config.vm.box = "ubuntu/noble64"
+  config.vm.box = "bento/ubuntu-24.04"
   config.vm.hostname = "k8s-base"
   config.vm.synced_folder ".", "/vagrant", disabled: true
 
@@ -59,11 +59,11 @@ EOF
 https://download.docker.com/linux/ubuntu noble stable" \
       > /etc/apt/sources.list.d/docker.list
 
-    echo "==> Kubernetes repo (v1.35)"
-    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key \
+    echo "==> Kubernetes repo (v1.33)"
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key \
       | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
     echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
-https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /" \
+https://pkgs.k8s.io/core:/stable:/v1.33/deb/ /" \
       > /etc/apt/sources.list.d/kubernetes.list
 
     echo "==> Install containerd + Kubernetes packages"
