@@ -4,9 +4,9 @@ apps:
   containerRegistry:
     enabled: true
   externalSecretsOperator:
-    enabled: false
+    enabled: true
   hashicorpVault:
-    enabled: false
+    enabled: true
   metallb:
     enabled: true
   monitoring:

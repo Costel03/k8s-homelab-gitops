@@ -24,7 +24,7 @@ Deploy a 3-node Kubernetes cluster on VirtualBox VMs using Vagrant for provision
 All VMs are built from a custom `k8s-base` box (`base-box/Vagrantfile`) that pre-bakes:
 - containerd.io + Docker/K8s apt repos
 - kubelet, kubeadm, kubectl (v1.35)
-- chrony, nfs-common, iptables-legacy
+- nfs-common, iptables-legacy
 - Pre-pulled `kubeadm config images`
 
 Build the base box once (PowerShell):

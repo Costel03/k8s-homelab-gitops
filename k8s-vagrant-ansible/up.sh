@@ -12,7 +12,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VAGRANT_MACHINES="$SCRIPT_DIR/.vagrant/machines"
 SSH_DIR="$HOME/.ssh"
 KUBE_DIR="$HOME/.kube"
 
@@ -29,13 +28,19 @@ vagrant.exe up
 # ── 2. Copy Vagrant SSH private keys to WSL ──────────────────────────
 echo "==> Copying SSH keys..."
 for vm in "${NODES[@]}"; do
-    KEY_SRC="$VAGRANT_MACHINES/$vm/virtualbox/private_key"
+    # Ask vagrant.exe for the SSH config and extract the IdentityFile (Windows path)
+    KEY_WIN=$(vagrant.exe ssh-config "$vm" 2>/dev/null | awk '/IdentityFile/ {print $2}' | tr -d '\r')
+    if [[ -z "$KEY_WIN" ]]; then
+        echo "ERROR: could not get SSH config for $vm from vagrant"
+        exit 1
+    fi
+    KEY_SRC=$(wslpath "$KEY_WIN")
     if [[ -f "$KEY_SRC" ]]; then
         # Copy to WSL home (not /mnt/c) so chmod 600 works on ext4, not NTFS
         install -m 600 "$KEY_SRC" "$SSH_DIR/$vm"
         echo "    $vm ✔"
     else
-        echo "ERROR: key not found at $KEY_SRC"
+        echo "ERROR: key not found at $KEY_SRC (vagrant reported: $KEY_WIN)"
         exit 1
     fi
 done

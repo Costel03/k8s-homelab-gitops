@@ -33,7 +33,7 @@ singleBinary:
       memory: 128Mi
     limits:
       cpu: 200m
-      memory: 512Mi
+      memory: 256Mi
 
 # Disable distributed components (not needed for single binary)
 read:

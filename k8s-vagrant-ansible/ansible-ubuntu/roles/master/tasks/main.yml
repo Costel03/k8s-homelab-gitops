@@ -73,25 +73,6 @@
     state: present
     timeout: 60
 
-- name: Stabilize clock before kubeadm init
-  become: true
-  shell: |
-    # Step-correct twice so chrony has had a chance to poll NTP.
-    chronyc makestep 2>/dev/null || true
-    sleep 3
-    chronyc makestep 2>/dev/null || true
-    # *** Stop chrony entirely for the duration of kubeadm init. ***
-    # A clock jump DURING init (cert generation → apiserver start) causes
-    # TLS "certificate not yet valid" failures: certs are written with the
-    # pre-jump time as notBefore; after the jump the time is earlier, so
-    # every HTTPS call to /livez fails and kubeadm loops until the
-    # context deadline (which was itself set from the drifted clock).
-    systemctl stop chrony
-    # Sync from VirtualBox hardware clock (kept in sync with Windows host)
-    hwclock --hctosys 2>/dev/null || true
-    echo "Clock stabilized at: $(date -u --rfc-3339=seconds)"
-  when: not kubeadm_config.stat.exists
-
 - name: Reset any partial kubeadm state before init
   become: true
   shell: |
@@ -139,7 +120,7 @@
   register: kubeadm_ver
   when: not kubeadm_config.stat.exists
 
-- name: Write kubeadm init config (embeds failSwapOn + timeouts)
+- name: Write kubeadm init config
   become: true
   copy:
     dest: /tmp/kubeadm-init-config.yaml
@@ -150,13 +131,6 @@
       localAPIEndpoint:
         advertiseAddress: 192.168.56.10
         bindPort: 6443
-      timeouts:
-        # Generous timeouts for slow VirtualBox+Hyper-V disk I/O.
-        # controlPlaneComponentHealthCheck: how long to poll /healthz
-        # kubernetesAPICall: per-request timeout for API calls (default is ~10s
-        #   in k8s 1.33 — too short for first etcd WAL fsync on slow VirtualBox)
-        controlPlaneComponentHealthCheck: 20m0s
-        kubernetesAPICall: 5m0s
       nodeRegistration:
         criSocket: unix:///run/containerd/containerd.sock
       ---
@@ -165,15 +139,6 @@
       kubernetesVersion: {{ kubeadm_ver.stdout | trim }}
       networking:
         podSubnet: 10.244.0.0/16
-      etcd:
-        local:
-          # Tuned for slow VirtualBox disk: default 100ms/1000ms triggers
-          # constant leader re-elections when WAL fsync > election-timeout.
-          extraArgs:
-          - name: heartbeat-interval
-            value: "250"
-          - name: election-timeout
-            value: "2500"
       ---
       apiVersion: kubelet.config.k8s.io/v1beta1
       kind: KubeletConfiguration
@@ -200,44 +165,11 @@
     executable: /bin/bash
   when: not kubeadm_config.stat.exists
 
-- name: Restart chrony after kubeadm init (re-enable NTP now that certs are stable)
-  systemd:
-    name: chrony
-    state: started
-  become: true
-
 - name: Enable and start kubelet (just in case)
   systemd:
     name: kubelet
     enabled: yes
     state: started
-
-- name: Tune etcd timeouts for slow VirtualBox disk (heartbeat 250ms, election 2500ms)
-  shell: |
-    if ! grep -q 'heartbeat-interval' /etc/kubernetes/manifests/etcd.yaml; then
-      sed -i '/- --trusted-ca-file/a\    - --heartbeat-interval=250\n    - --election-timeout=2500' \
-        /etc/kubernetes/manifests/etcd.yaml
-    fi
-  args:
-    executable: /bin/bash
-
-- name: Tune kube-controller-manager leader election for slow etcd
-  shell: |
-    if ! grep -q 'leader-elect-lease-duration' /etc/kubernetes/manifests/kube-controller-manager.yaml; then
-      sed -i 's/--leader-elect=true/--leader-elect=true\n    - --leader-elect-lease-duration=60s\n    - --leader-elect-renew-deadline=40s/' \
-        /etc/kubernetes/manifests/kube-controller-manager.yaml
-    fi
-  args:
-    executable: /bin/bash
-
-- name: Tune kube-scheduler leader election for slow etcd
-  shell: |
-    if ! grep -q 'leader-elect-lease-duration' /etc/kubernetes/manifests/kube-scheduler.yaml; then
-      sed -i 's/--leader-elect=true/--leader-elect=true\n    - --leader-elect-lease-duration=60s\n    - --leader-elect-renew-deadline=40s/' \
-        /etc/kubernetes/manifests/kube-scheduler.yaml
-    fi
-  args:
-    executable: /bin/bash
 
 - name: Create .kube directory for vagrant user
   file:
@@ -286,7 +218,19 @@
     kubectl apply -f /tmp/calico.yaml
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
+  register: calico_apply
+  until: calico_apply.rc == 0
+  retries: 12
+  delay: 30
   when: calico_status.rc != 0
+
+- name: Set Calico IP autodetection and pod CIDR (avoids kubeadm-config API query on startup)
+  shell: |
+    kubectl -n kube-system set env daemonset/calico-node \
+      IP_AUTODETECTION_METHOD=cidr=192.168.56.0/24 \
+      CALICO_IPV4POOL_CIDR=10.244.0.0/16
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
 
 - name: Save kubeadm join command
   shell: |

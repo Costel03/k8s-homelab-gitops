@@ -60,10 +60,6 @@
     owner: vagrant
     group: vagrant
 
-- name: Force clock sync before joining cluster
-  become: true
-  command: chronyc makestep
-
 - name: Join Kubernetes cluster
   become: true
   command: bash /home/vagrant/kubeadm-join.sh

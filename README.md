@@ -1,10 +1,10 @@
 # k8s-homelab-gitops
 
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-1.35-326CE5?logo=kubernetes&logoColor=white)
-![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04_LTS-E95420?logo=ubuntu&logoColor=white)
+![Ubuntu](https://img.shields.io/badge/Ubuntu-26.04_LTS-E95420?logo=ubuntu&logoColor=white)
 ![Vagrant](https://img.shields.io/badge/Vagrant-VirtualBox-1563FF?logo=vagrant&logoColor=white)
 ![ArgoCD](https://img.shields.io/badge/ArgoCD-App--of--Apps-EF7B4D?logo=argo&logoColor=white)
-![Vault](https://img.shields.io/badge/HashiCorp_Vault-1.21-FFCF25?logo=vault&logoColor=black)
+![Vault](https://img.shields.io/badge/HashiCorp_Vault-1.21.2-FFCF25?logo=vault&logoColor=black)
 ![GitOps](https://img.shields.io/badge/GitOps-automated-brightgreen)
 
 Full GitOps homelab: 3-node Kubernetes cluster on VirtualBox VMs, fully automated from VM creation to running services. One script rebuilds everything from scratch.
@@ -43,9 +43,10 @@ kubectl get applications -n argocd
   ┌──────────────────────────────────────────────────────────────┐
   │  Host-only network: 192.168.56.0/24                          │
   │                                                              │
-  │  k8s-master   192.168.56.10   2 CPUs  /  2 GB  control-plane│
-  │  k8s-worker1  192.168.56.11   8 CPUs  / 12 GB  worker       │
-  │  k8s-worker2  192.168.56.12   8 CPUs  / 12 GB  worker       │
+  │  k8s-master   192.168.56.10   3 CPUs /  4 GB  control-plane  │
+  │  k8s-worker1  192.168.56.11   6 CPUs /  8 GB  worker        │
+  │  k8s-worker2  192.168.56.12   6 CPUs /  8 GB  worker        │
+  │  50 GB disk per node (VirtualBox VDI, linked clones)         │
   │                                                              │
   │  MetalLB L2 pool: 192.168.56.20 – 192.168.56.40             │
   │    .20  ArgoCD          .22  nginx-ingress (vault)           │
@@ -75,22 +76,50 @@ kubectl get applications -n argocd
 
 ## Stack
 
-| Component | Technology | Chart version |
+| Component | Technology | Version |
 |---|---|---|
-| OS | Ubuntu 24.04 LTS (Noble), no GUI | — |
-| Container runtime | containerd.io | latest |
-| Kubernetes | kubeadm / kubelet / kubectl | 1.35.x |
+| OS | Ubuntu 26.04 LTS (Resolute), no GUI | — |
+| Container runtime | containerd.io | 2.2.x |
+| Kubernetes | kubeadm / kubelet / kubectl | 1.35.5 |
 | CNI | Calico | 3.29.1 |
-| GitOps | ArgoCD | argo/argo-cd latest |
-| Secrets store | HashiCorp Vault | 0.32.0 |
-| Secrets bridge | External Secrets Operator | 2.4.1 |
-| Load balancer | MetalLB | 0.15.3 |
-| Ingress | NGINX Ingress Controller | 4.15.1 |
-| Storage | NFS subdir provisioner | 4.0.18 |
-| Metrics | Prometheus | 29.6.0 |
-| Logs | Loki | 7.0.0 |
-| Dashboards | Grafana | 10.5.15 |
-| Registry | Zot (OCI) | 0.1.112 |
+| GitOps | ArgoCD | argo/argo-cd (latest) |
+| Secrets store | HashiCorp Vault | 1.21.2 (chart 0.32.0) |
+| Secrets bridge | External Secrets Operator | v2.4.1 (chart 2.4.1) |
+| Load balancer | MetalLB | v0.15.3 |
+| Ingress | NGINX Ingress Controller | 1.15.1 (chart 4.15.1) |
+| Storage | NFS subdir provisioner | 4.0.2 |
+| Metrics | Prometheus | v3.11.3 |
+| Logs | Loki | 3.6.7 |
+| Dashboards | Grafana | 12.3.1 |
+| Registry | Zot (OCI) | v2.1.16 (chart 0.1.112) |
+
+---
+
+## Resource Budget
+
+Minimum resource requests/limits set across all deployed components:
+
+| Component | Req CPU | Req Mem | Limit CPU | Limit Mem |
+|---|---|---|---|---|
+| ArgoCD server | 50m | 128Mi | 200m | 256Mi |
+| ArgoCD controller | 50m | 128Mi | 200m | 256Mi |
+| ArgoCD repoServer | 50m | 64Mi | 100m | 128Mi |
+| ArgoCD applicationSet | 25m | 64Mi | 100m | 128Mi |
+| ArgoCD redis | 25m | 64Mi | 100m | 128Mi |
+| HashiCorp Vault | 50m | 256Mi | 200m | 512Mi |
+| External Secrets Operator | 50m | 64Mi | 100m | 128Mi |
+| ESO webhook | 25m | 32Mi | 100m | 64Mi |
+| ESO certController | 25m | 32Mi | 100m | 64Mi |
+| MetalLB controller | 25m | 32Mi | 100m | 64Mi |
+| MetalLB speaker | 25m | 32Mi | 100m | 64Mi |
+| NGINX Ingress | 50m | 64Mi | 200m | 128Mi |
+| NFS provisioner | 25m | 32Mi | 100m | 64Mi |
+| Grafana | 50m | 128Mi | 200m | 256Mi |
+| Prometheus | 50m | 256Mi | 200m | 512Mi |
+| Loki | 50m | 128Mi | 200m | 256Mi |
+| Zot Registry | 50m | 64Mi | 200m | 256Mi |
+
+> Vault's 256 Mi request is a hard minimum — the Go runtime alone allocates ~200 Mi before accepting traffic.
 
 ---
 
@@ -318,9 +347,10 @@ kubectl get pods -A
   ┌──────────────────────────────────────────────────────────────┐
   │  Host-only network: 192.168.56.0/24                          │
   │                                                              │
-  │  k8s-master   192.168.56.10   2 CPUs  /  2 GB               │
-  │  k8s-worker1  192.168.56.11   8 CPUs  / 12 GB               │
-  │  k8s-worker2  192.168.56.12   8 CPUs  / 12 GB               │
+  │  k8s-master   192.168.56.10   3 CPUs /  4 GB                 │
+  │  k8s-worker1  192.168.56.11   6 CPUs /  8 GB                 │
+  │  k8s-worker2  192.168.56.12   6 CPUs /  8 GB                 │
+  │  50 GB disk per node (VirtualBox VDI, linked clones)          │
   │                                                              │
   │  MetalLB L2 pool: 192.168.56.20 – 192.168.56.40             │
   │    .20  ArgoCD          .22  nginx-ingress (vault)           │
