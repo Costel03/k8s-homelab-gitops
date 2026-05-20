@@ -7,7 +7,24 @@
 ![Vault](https://img.shields.io/badge/HashiCorp_Vault-1.21.2-FFCF25?logo=vault&logoColor=black)
 ![GitOps](https://img.shields.io/badge/GitOps-automated-brightgreen)
 
-Full GitOps homelab: 3-node Kubernetes cluster on VirtualBox VMs, fully automated from VM creation to running services. One script rebuilds everything from scratch.
+Full GitOps homelab: a 3-node Kubernetes cluster running on VirtualBox VMs, fully automated from VM creation to running services. A single script rebuilds the entire stack from scratch.
+
+---
+
+## Table of Contents
+
+- [ArgoCD Application Status](#argocd-application-status)
+- [Architecture](#architecture)
+- [Stack](#stack)
+- [Resource Budget](#resource-budget)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [What `rebuild.sh` Does](#what-rebuildsh-does)
+- [After Rebuild — Windows Setup](#after-rebuild--windows-setup)
+- [Services](#services)
+- [Repository Structure](#repository-structure)
+- [Day-2 Operations](#day-2-operations)
+- [Security Notes](#security-notes)
 
 ---
 
@@ -29,13 +46,12 @@ Full GitOps homelab: 3-node Kubernetes cluster on VirtualBox VMs, fully automate
 | loki | [![Sync](https://argocd.local/api/badge?name=loki&revision=true)](https://argocd.local/applications/loki) | — |
 | container-registry | [![Sync](https://argocd.local/api/badge?name=container-registry&revision=true)](https://argocd.local/applications/container-registry) | — |
 
-Check all apps from the terminal:
 ```bash
+# Check all apps from the terminal
 kubectl get applications -n argocd
 ```
 
 ---
-
 
 ## Architecture
 
@@ -45,8 +61,8 @@ kubectl get applications -n argocd
   │  Host-only network: 192.168.56.0/24                          │
   │                                                              │
   │  k8s-master   192.168.56.10   3 CPUs /  4 GB  control-plane  │
-  │  k8s-worker1  192.168.56.11   6 CPUs /  8 GB  worker        │
-  │  k8s-worker2  192.168.56.12   6 CPUs /  8 GB  worker        │
+  │  k8s-worker1  192.168.56.11   6 CPUs /  8 GB  worker         │
+  │  k8s-worker2  192.168.56.12   6 CPUs /  8 GB  worker         │
   │  50 GB disk per node (VirtualBox VDI, linked clones)         │
   │                                                              │
   │  MetalLB L2 pool: 192.168.56.20 – 192.168.56.40             │
@@ -98,9 +114,9 @@ kubectl get applications -n argocd
 
 ## Resource Budget
 
-Minimum resource requests/limits set across all deployed components:
+Minimum resource requests and limits set across all deployed components:
 
-| Component | Req CPU | Req Mem | Limit CPU | Limit Mem |
+| Component | CPU Request | Mem Request | CPU Limit | Mem Limit |
 |---|---|---|---|---|
 | ArgoCD server | 50m | 128Mi | 200m | 256Mi |
 | ArgoCD controller | 50m | 128Mi | 200m | 256Mi |
@@ -120,7 +136,7 @@ Minimum resource requests/limits set across all deployed components:
 | Loki | 50m | 128Mi | 200m | 256Mi |
 | Zot Registry | 50m | 64Mi | 200m | 256Mi |
 
-> Vault's 256 Mi request is a hard minimum — the Go runtime alone allocates ~200 Mi before accepting traffic.
+> Vault's 256Mi memory request is a hard minimum — the Go runtime alone allocates ~200Mi before accepting traffic.
 
 ---
 
@@ -139,7 +155,7 @@ Minimum resource requests/limits set across all deployed components:
 
 ### Base box — build once
 
-All VMs are linked clones of a local `k8s-base` Vagrant box. Build it once from **WSL**:
+All VMs are linked clones of a local `k8s-base` Vagrant box that pre-bakes containerd, Kubernetes binaries, and pre-pulled `kubeadm` images. Build it once from **WSL**:
 
 ```bash
 cd k8s-vagrant-ansible
@@ -158,20 +174,20 @@ bash build-base-box.sh
 # VMs do not exist yet
 ./rebuild.sh
 
-# Or destroy any existing VMs first, then rebuild
+# Destroy any existing VMs first, then rebuild
 ./rebuild.sh --destroy
 ```
 
-### Option B — Cluster is already up, bootstrap apps only
+### Option B — Cluster already up, bootstrap apps only
 
-This is the typical flow when you have provisioned the VMs manually (e.g. via `up.sh` + Ansible directly) and just need to install ArgoCD and sync all applications:
+Use this when VMs are already provisioned (e.g. via `up.sh` + Ansible) and you only need to install ArgoCD and sync all applications:
 
 ```bash
 # Step 1 — Bring up VMs and provision with Ansible
 cd k8s-vagrant-ansible
 bash up.sh
 
-# Step 2 — Bootstrap everything else (ArgoCD, Vault, certs, all apps)
+# Step 2 — Bootstrap ArgoCD, Vault, certs, and all apps
 cd ..
 ./rebuild.sh --skip-ansible
 ```
@@ -180,7 +196,7 @@ cd ..
 
 ---
 
-## What `rebuild.sh` does
+## What `rebuild.sh` Does
 
 | Step | Description |
 |---|---|
@@ -196,11 +212,11 @@ cd ..
 | 9 | Trusts the homelab CA in WSL |
 | 10 | Force-syncs all ExternalSecrets |
 | 11 | Waits up to 20 min for all ArgoCD apps to reach `Healthy` |
-| 12 | Prints summary with hosts file entries and CA trust command |
+| 12 | Prints a summary with hosts file entries and the CA trust command |
 
 ---
 
-## After rebuild — Windows setup
+## After Rebuild — Windows Setup
 
 **1. Add to hosts file** — open `C:\Windows\System32\drivers\etc\hosts` as Administrator:
 
@@ -211,7 +227,7 @@ cd ..
 192.168.56.23  zot.local
 ```
 
-**2. Trust the CA cert** — PowerShell as Administrator:
+**2. Trust the CA cert** — PowerShell as Administrator (path is also printed by `rebuild.sh`):
 
 ```powershell
 Import-Certificate -FilePath 'C:\Users\iacob\homelab-ca.crt' `
@@ -226,10 +242,10 @@ Import-Certificate -FilePath 'C:\Users\iacob\homelab-ca.crt' `
 |---|---|---|---|
 | ArgoCD | https://argocd.local | `192.168.56.20` | Vault → `argocd` engine, `admin` secret |
 | Grafana | https://grafana.local | `192.168.56.21` | Vault → `argocd` engine, `admin` secret |
-| Vault | https://vault.local | `192.168.56.22` | root token in `~/vault-init.json` |
-| Zot Registry | https://zot.local | `192.168.56.23` | anonymous pull / push |
-| Prometheus | ClusterIP only | — | port-forward :9090 |
-| Loki | ClusterIP only | — | port-forward :3100 |
+| Vault | https://vault.local | `192.168.56.22` | Root token in `~/vault-init.json` |
+| Zot Registry | https://zot.local | `192.168.56.23` | Anonymous pull / push |
+| Prometheus | ClusterIP only | — | `kubectl port-forward svc/prometheus 9090` |
+| Loki | ClusterIP only | — | `kubectl port-forward svc/loki 3100` |
 
 ---
 
@@ -337,230 +353,3 @@ kubectl get pods -A
 - `~/vault-init.json` contains the Vault root token and unseal key — **keep it safe and never commit it**.
 - TLS certificates are self-signed by a homelab CA. The CA cert must be trusted on any machine accessing the services over HTTPS.
 - All application passwords and TLS certs are stored exclusively in Vault. No secrets live in this Git repo.
-
-
----
-
-## Architecture
-
-```
-  Windows Host (VirtualBox + Vagrant)
-  ┌──────────────────────────────────────────────────────────────┐
-  │  Host-only network: 192.168.56.0/24                          │
-  │                                                              │
-  │  k8s-master   192.168.56.10   3 CPUs /  4 GB                 │
-  │  k8s-worker1  192.168.56.11   6 CPUs /  8 GB                 │
-  │  k8s-worker2  192.168.56.12   6 CPUs /  8 GB                 │
-  │  50 GB disk per node (VirtualBox VDI, linked clones)          │
-  │                                                              │
-  │  MetalLB L2 pool: 192.168.56.20 – 192.168.56.40             │
-  │    .20  ArgoCD          .22  nginx-ingress (vault)           │
-  │    .21  Grafana         .23  nginx-ingress-zot (zot)         │
-  └──────────────────────────────────────────────────────────────┘
-
-  Git Repo (this repo)
-       │  watches
-       ▼
-  ┌──────────────────────────────────────────────────────────────┐
-  │  ArgoCD — App-of-Apps                                        │
-  │                                                              │
-  │  ┌─────────┐  ┌─────┐  ┌───────┐  ┌──────────┐  ┌──────┐  │
-  │  │  Vault  │  │ ESO │  │MetalLB│  │  nginx   │  │ NFS  │  │
-  │  └─────────┘  └─────┘  └───────┘  └──────────┘  └──────┘  │
-  │  ┌──────────────────┐   ┌──────────────────────────────────┐ │
-  │  │  Monitoring      │   │  Container Registry (Zot)        │ │
-  │  │  Prometheus+Loki │   │  OCI — 192.168.56.23             │ │
-  │  │  +Grafana        │   └──────────────────────────────────┘ │
-  │  └──────────────────┘                                        │
-  └──────────────────────────────────────────────────────────────┘
-
-  Secrets flow:
-    generate-certs.sh  →  Vault (KV v2)  →  ESO  →  K8s Secrets
-```
-
----
-
-## Stack
-
-| Component | Technology | Version |
-|---|---|---|
-| OS | Ubuntu 24.04 LTS (Noble) | — |
-| Container runtime | containerd.io | latest |
-| Kubernetes | kubeadm / kubelet / kubectl | 1.35.x |
-| CNI | Calico | 3.29.1 |
-| GitOps | ArgoCD | latest helm |
-| Secrets store | HashiCorp Vault | 0.29.1 chart |
-| Secrets bridge | External Secrets Operator | latest |
-| Load balancer | MetalLB | L2 mode |
-| Ingress | NGINX Ingress Controller | 4.12.1 |
-| Storage | NFS subdir provisioner | nfs-client SC |
-| Monitoring | Prometheus + Loki + Grafana | latest |
-| Registry | Zot (OCI) | latest |
-
----
-
-## Prerequisites
-
-| Tool | Where |
-|---|---|
-| VirtualBox | Windows |
-| Vagrant | Windows (`vagrant.exe` on PATH) |
-| WSL2 + Ubuntu | Windows |
-| `kubectl`, `helm`, `jq`, `openssl` | WSL |
-| Ansible | WSL (`pip install ansible`) |
-
-### Base box (one-time setup)
-
-All VMs are cloned from a custom `k8s-base` box that pre-bakes containerd, Kubernetes binaries, and pre-pulled `kubeadm` images. Build it once from PowerShell:
-
-```powershell
-cd C:\Users\iacob\Documents\repos\k8s-homelab-gitops\k8s-vagrant-ansible\base-box
-vagrant.exe up --provision
-vagrant.exe package --output k8s-base.box
-vagrant.exe box add k8s-base k8s-base.box
-vagrant.exe destroy -f
-```
-
----
-
-## Quick Start — Full Rebuild
-
-From **WSL**, at the repo root:
-
-```bash
-# Fresh build (VMs do not exist yet)
-./rebuild.sh
-
-# Destroy existing VMs and rebuild from scratch
-./rebuild.sh --destroy
-```
-
-`rebuild.sh` runs everything end-to-end:
-
-| Step | What happens |
-|---|---|
-| 1 | `vagrant.exe up` — creates 3 VMs from the base box |
-| 2 | SSH keys copied to WSL; `~/.ssh/config` configured |
-| 3 | Ansible provisions the cluster (kubeadm init, Calico, NFS server, worker join) |
-| 4 | `kubeconfig` fetched to `~/.kube/config` |
-| 5 | ArgoCD installed via Helm |
-| 6 | App-of-Apps applied — ArgoCD deploys all services |
-| 7 | Vault initialized and unsealed; `~/vault-init.json` saved |
-| 8 | `vault-token` + `vault-unseal-key` K8s secrets created |
-| 9 | `generate-certs.sh` creates CA + TLS certs and stores them in Vault |
-| 10 | CA cert trusted in WSL |
-| 11 | ExternalSecrets force-synced |
-| 12 | Waits up to 20 min for all ArgoCD apps to reach `Healthy` |
-
-### After rebuild — Windows setup
-
-**1. Hosts file** — add to `C:\Windows\System32\drivers\etc\hosts` (Notepad as Administrator):
-
-```
-192.168.56.20  argocd.local
-192.168.56.21  grafana.local
-192.168.56.22  vault.local
-192.168.56.23  zot.local
-```
-
-**2. Trust the CA cert** — PowerShell as Administrator (path printed by `rebuild.sh`):
-
-```powershell
-Import-Certificate -FilePath 'C:\Users\iacob\homelab-ca.crt' `
-  -CertStoreLocation 'Cert:\LocalMachine\Root'
-```
-
----
-
-## Services
-
-| Service | URL | LoadBalancer IP | Credentials |
-|---|---|---|---|
-| ArgoCD | https://argocd.local | `192.168.56.20` | Vault: `argocd` engine, `admin` secret |
-| Grafana | https://grafana.local | `192.168.56.21` | Vault: `argocd` engine, `admin` secret |
-| Vault | https://vault.local | `192.168.56.22` | root token in `~/vault-init.json` |
-| Zot Registry | https://zot.local | `192.168.56.23` | anonymous pull / push |
-
----
-
-## Repository Structure
-
-```
-k8s-homelab-gitops/
-│
-├── rebuild.sh                        # One-shot full cluster rebuild
-│
-├── k8s-vagrant-ansible/              # VM provisioning
-│   ├── up.sh                         # VMs + SSH + Ansible + kubeconfig
-│   ├── Vagrantfile                   # 3-node cluster definition
-│   ├── base-box/Vagrantfile          # Base image builder
-│   └── ansible-ubuntu/               # Ansible roles: common / master / worker
-│
-├── argocd/                           # ArgoCD Helm values + bootstrap
-│   ├── generate-certs.sh             # CA + TLS cert generation → Vault
-│   ├── bootstrap/app-of-apps.yaml    # Root ArgoCD Application
-│   ├── external-secrets/             # ExternalSecrets for ArgoCD
-│   └── helm/argocd/values.yaml
-│
-├── apps/                             # ArgoCD Application manifests (app-of-apps)
-│   ├── argocd/application.yaml
-│   ├── container-registry/
-│   ├── ExternalSecretsOperator/
-│   ├── hashicorp-vault/
-│   ├── metallb/
-│   ├── monitoring/
-│   ├── nfs/
-│   └── nginx-ingress/
-│
-├── hashicorp-vault/                  # Vault Helm chart + auto-unseal Deployment
-├── external-secrets-operator/        # ESO Helm chart + ClusterSecretStore
-├── metallb/                          # MetalLB Helm chart + IPAddressPool
-├── nginx-ingress/                    # Two NGINX controllers (main + zot)
-├── nfs/                              # NFS provisioner (nfs-client StorageClass)
-├── monitoring/                       # Prometheus + Loki + Grafana
-└── container-registry/               # Zot OCI registry
-```
-
----
-
-## Day-2 Operations
-
-### Cluster suspend / resume
-
-```bash
-# Suspend (saves VM state)
-vagrant.exe halt
-
-# Resume (no re-provisioning)
-vagrant.exe up
-```
-
-After resume, Vault wakes sealed. The `vault-auto-unseal` Deployment handles this automatically within ~10 seconds.
-
-### Manual Vault unseal (if needed)
-
-```bash
-kubectl exec -n hashicorp-vault hashicorp-vault-0 -- \
-  vault operator unseal "$(jq -r '.unseal_keys_b64[0]' ~/vault-init.json)"
-```
-
-### Force ExternalSecrets re-sync
-
-```bash
-kubectl annotate externalsecret -A --all \
-  force-sync="$(date +%s)" --overwrite
-```
-
-### Check ArgoCD app status
-
-```bash
-kubectl get applications -n argocd
-```
-
----
-
-## Security Notes
-
-- `~/vault-init.json` contains the Vault root token and unseal key — **keep it safe and never commit it**.
-- TLS certs are self-signed by a homelab CA. The CA cert must be trusted on any machine that accesses the services over HTTPS.
-- All application passwords and TLS certs are stored exclusively in Vault; no secrets live in this Git repo.
