@@ -65,7 +65,7 @@ kubectl get applications -n argocd
   │  k8s-worker2  192.168.56.12   6 CPUs /  8 GB  worker         │
   │  50 GB disk per node (VirtualBox VDI, linked clones)         │
   │                                                              │
-  │  MetalLB L2 pool: 192.168.56.20 – 192.168.56.40             │
+  │  MetalLB L2 pool: 192.168.56.20 – 192.168.56.40              │
   │    .20  ArgoCD          .22  nginx-ingress (vault)           │
   │    .21  Grafana         .23  nginx-ingress-zot (zot)         │
   └──────────────────────────────────────────────────────────────┘
@@ -76,13 +76,13 @@ kubectl get applications -n argocd
   ┌──────────────────────────────────────────────────────────────┐
   │  ArgoCD  https://argocd.local  (App-of-Apps pattern)         │
   │                                                              │
-  │  ┌──────────┐ ┌─────┐ ┌───────┐ ┌──────────┐ ┌──────────┐  │
-  │  │  Vault   │ │ ESO │ │MetalLB│ │  NGINX   │ │   NFS    │  │
-  │  └──────────┘ └─────┘ └───────┘ └──────────┘ └──────────┘  │
-  │  ┌─────────────────────────┐  ┌───────────────────────────┐ │
-  │  │  Monitoring             │  │  Container Registry (Zot) │ │
-  │  │  Prometheus+Loki+Grafana│  │  OCI — 192.168.56.23      │ │
-  │  └─────────────────────────┘  └───────────────────────────┘ │
+  │  ┌──────────┐ ┌─────┐ ┌───────┐ ┌──────────┐ ┌──────────┐    │
+  │  │  Vault   │ │ ESO │ │MetalLB│ │  NGINX   │ │   NFS    │    │
+  │  └──────────┘ └─────┘ └───────┘ └──────────┘ └──────────┘    │
+  │  ┌─────────────────────────┐  ┌───────────────────────────┐  │
+  │  │  Monitoring             │  │  Container Registry (Zot) │  │
+  │  │  Prometheus+Loki+Grafana│  │  OCI — 192.168.56.23      │  │
+  │  └─────────────────────────┘  └───────────────────────────┘  │
   └──────────────────────────────────────────────────────────────┘
 
   Secrets flow:
