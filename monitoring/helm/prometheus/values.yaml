@@ -12,11 +12,11 @@ server:
 
   resources:
     requests:
-      cpu: 50m
+      cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 200m
-      memory: 512Mi
+      cpu: 500m
+      memory: 1Gi
 
 alertmanager:
   enabled: true

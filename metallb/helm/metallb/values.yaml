@@ -4,20 +4,22 @@ controller:
   resources:
     requests:
       cpu: 25m
-      memory: 32Mi
+      memory: 64Mi
     limits:
       cpu: 100m
-      memory: 64Mi
+      memory: 128Mi
 
 speaker:
   logLevel: error
+  # FRR mode runs 4 containers per pod: speaker + frr + reloader + frr-metrics.
+  # Each needs ~30-60Mi. 32Mi was too low and caused startup probe failures.
   resources:
     requests:
-      cpu: 25m
-      memory: 32Mi
-    limits:
       cpu: 100m
-      memory: 64Mi
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
 
   tolerations:
   - key: node-role.kubernetes.io/control-plane
