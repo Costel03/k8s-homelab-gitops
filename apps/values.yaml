@@ -9,6 +9,8 @@ apps:
     enabled: false
   metallb:
     enabled: true
+  metricsServer:
+    enabled: true
   monitoring:
     enabled: false
   nfs:
