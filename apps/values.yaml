@@ -13,6 +13,10 @@ apps:
     enabled: true
   myApp:
     enabled: true
+  myApp2:
+    enabled: true
+  verticalPodAutoscaler:
+    enabled: true
   monitoring:
     enabled: false
   nfs:
