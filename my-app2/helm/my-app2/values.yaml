@@ -13,9 +13,18 @@ service:
     metallb.universe.tf/loadBalancerIPs: "192.168.56.24"
 
 ingress:
-  enabled: true
+  enabled: false
   className: nginx
   host: my-app2.local
+
+# Istio Gateway routes external traffic to this app
+# Host 192.168.56.27 → istio ingressgateway → my-app2 service
+istio:
+  enabled: true
+  host: my-app2.local
+  port: 80
+  selector:
+    istio: ingressgateway
 
 # VPA: updateMode options:
 #   Off      - recommendations only, no changes applied
