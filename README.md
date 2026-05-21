@@ -118,21 +118,21 @@ Minimum resource requests and limits set across all deployed components:
 
 | Component | CPU Request | Mem Request | CPU Limit | Mem Limit |
 |---|---|---|---|---|
-| ArgoCD server | 50m | 128Mi | 200m | 256Mi |
-| ArgoCD controller | 50m | 128Mi | 200m | 256Mi |
-| ArgoCD repoServer | 50m | 64Mi | 100m | 128Mi |
+| ArgoCD server | 50m | 128Mi | 300m | 384Mi |
+| ArgoCD controller | 100m | 256Mi | 500m | 512Mi |
+| ArgoCD repoServer | 50m | 128Mi | 300m | 256Mi |
 | ArgoCD applicationSet | 25m | 64Mi | 100m | 128Mi |
 | ArgoCD redis | 25m | 64Mi | 100m | 128Mi |
 | HashiCorp Vault | 50m | 256Mi | 200m | 512Mi |
 | External Secrets Operator | 50m | 64Mi | 100m | 128Mi |
-| ESO webhook | 25m | 32Mi | 100m | 64Mi |
-| ESO certController | 25m | 32Mi | 100m | 64Mi |
-| MetalLB controller | 25m | 32Mi | 100m | 64Mi |
-| MetalLB speaker | 25m | 32Mi | 100m | 64Mi |
+| ESO webhook | 25m | 64Mi | 100m | 128Mi |
+| ESO certController | 25m | 64Mi | 100m | 128Mi |
+| MetalLB controller | 25m | 64Mi | 100m | 128Mi |
+| MetalLB speaker (per node) | 100m | 128Mi | 300m | 256Mi |
 | NGINX Ingress | 50m | 64Mi | 200m | 128Mi |
 | NFS provisioner | 25m | 32Mi | 100m | 64Mi |
 | Grafana | 50m | 128Mi | 200m | 256Mi |
-| Prometheus | 50m | 256Mi | 200m | 512Mi |
+| Prometheus | 100m | 256Mi | 500m | 1Gi |
 | Loki | 50m | 128Mi | 200m | 256Mi |
 | Zot Registry | 50m | 64Mi | 200m | 256Mi |
 
