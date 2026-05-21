@@ -1,12 +1,18 @@
 apps:
   argocd:
-    enabled: false
+    enabled: true
+  istioBase:
+    enabled: true
+  istiod:
+    enabled: true
+  istioGateway:
+    enabled: true
   containerRegistry:
     enabled: true
   externalSecretsOperator:
-    enabled: false
+    enabled: true
   hashicorpVault:
-    enabled: false
+    enabled: true
   metallb:
     enabled: true
   metricsServer:
@@ -18,7 +24,7 @@ apps:
   verticalPodAutoscaler:
     enabled: true
   monitoring:
-    enabled: false
+    enabled: true
   nfs:
     enabled: true
   nginxIngress:
