@@ -21,6 +21,13 @@ speaker:
       cpu: 300m
       memory: 256Mi
 
+  # Give frr-metrics more time to bind on the first start, especially on the
+  # control-plane node where scheduling pressure causes slower startup.
+  # failureThreshold(30) * periodSeconds(5) = 150s max startup window.
+  startupProbe:
+    failureThreshold: 30
+    periodSeconds: 5
+
   tolerations:
   - key: node-role.kubernetes.io/control-plane
     effect: NoSchedule
