@@ -11,6 +11,8 @@ apps:
     enabled: true
   metricsServer:
     enabled: true
+  myApp:
+    enabled: true
   monitoring:
     enabled: false
   nfs:
